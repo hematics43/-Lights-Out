@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Lights Out Game</title>
+  <style>
+    :root {
+      --bg: #111;
+      --text: white;
+      --cell-off: #444;
+      --primary: #03a9f4;
+      --on-color: #ffeb3b;
+    }
+    body.light {
+      --bg: #f0f0f0;
+      --text: #111;
+      --cell-off: #ccc;
+      --primary: #1976d2;
+    }
+    body {
+      margin: 0;
+      font-family: 'Segoe UI', sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      transition: background 0.3s, color 0.3s;
+    }
+    h1 { margin: 20px; }
+    #controls {
+      margin: 10px;
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+    #game {
+      display: grid;
+      gap: 10px;
+      margin: 20px;
+      touch-action: manipulation;
+      opacity: 0;
+      transform: scale(0.95);
+      transition: all 0.5s ease-in-out;
+    }
+    #game.show {
+      opacity: 1;
+      transform: scale(1);
+    }
+    .cell {
+      width: 60px;
+      height: 60px;
+      background-color: var(--cell-off);
+      border-radius: 12px;
+      box-shadow: 0 4px 8px rgba(0,0,0,0.3);
+      transition: background-color 0.3s, box-shadow 0.3s;
+      cursor: pointer;
+      touch-action: manipulation;
+    }
+    .on {
+      background-color: var(--on-color);
+      box-shadow: 0 0 15px var(--on-color);
+    }
+    button, select {
+      padding: 10px 15px;
+      font-size: 1em;
+      border: none;
+      border-radius: 8px;
+      background-color: var(--primary);
+      color: white;
+      cursor: pointer;
+    }
+    button:hover { opacity: 0.9; }
+    #winMessage {
+      font-size: 1.2em;
+      color: #0f0;
+      display: none;
+    }
+    #timer, #moves, #bestTime, #bestMoves {
+      font-size: 1.1em;
+      margin: 5px;
+    }
+    #aboutBox {
+      max-width: 600px;
+      background: rgba(0,0,0,0.6);
+      padding: 15px;
+      margin: 15px;
+      border-radius: 10px;
+      display: none;
+    }
+    body.light #aboutBox {
+      background: rgba(255,255,255,0.7);
+    }
+    #aboutBox h2 { margin-top: 0; }
+  </style>
+</head>
+<body>
+  <h1>💡 Lights Out</h1>
+  <div id="controls">
+    <select id="difficulty">
+      <option value="2">🟢 Tiny (2x2)</option>
+      <option value="3">🟡 Easy (3x3)</option>
+      <option value="5" selected>🟠 Normal (5x5)</option>
+      <option value="7">🔴 Hard (7x7)</option>
+      <option value="9">⚫ Expert (9x9)</option>
+      <option value="11">💀 Insane (11x11)</option>
+    </select>
+    <button id="restart">🔄 New Game</button>
+    <button id="solve">🧠 Solve</button>
+    <button id="toggleTheme">🌓 Theme</button>
+    <button id="changeColor">🎨 Light Color</button>
+    <button id="aboutBtn">ℹ️ Help</button>
+  </div>
+  <div id="timer">⏱ Time: 0s</div>
+  <div id="moves">🎯 Moves: 0</div>
+  <div id="bestTime">🏅 Best Time: --</div>
+  <div id="bestMoves">🥇 Best Moves: --</div>
+  <div id="winMessage">🎉 You Win!</div>
+  <div id="aboutBox">
+    <h2>About the Game</h2>
+    <p><strong>Lights Out</strong> is a logic puzzle. Your goal is to turn off all the lights on the board.</p>
+    <h3>How to Play</h3>
+    <ul>
+      <li>Tap or swipe a tile to toggle it and its neighbors (up/down/left/right).</li>
+      <li>Yellow or colored = ON. Dark = OFF.</li>
+      <li>Win by turning all tiles OFF.</li>
+    </ul>
+  </div>
+  <div id="game"></div>
+  <script>
+    let size = 5, board = [], timer = 0, interval = null, moveCount = 0, colorIndex = 0;
+    const onColors = ["#ffeb3b", "#00ffff", "#ff69b4", "#00ff00", "#ffa500", "#ffffff"];
+    const game = document.getElementById("game"), timerDisplay = document.getElementById("timer");
+    const movesDisplay = document.getElementById("moves"), winMessage = document.getElementById("winMessage");
+    const bestTimeDisplay = document.getElementById("bestTime"), bestMovesDisplay = document.getElementById("bestMoves");
+    const aboutBox = document.getElementById("aboutBox");
+
+    function setLightColor(color) {
+      document.documentElement.style.setProperty("--on-color", color);
+    }
+    function cycleLightColor() {
+      colorIndex = (colorIndex + 1) % onColors.length;
+      setLightColor(onColors[colorIndex]);
+    }
+    function createBoard() {
+      board = []; game.innerHTML = "";
+      game.style.gridTemplateColumns = `repeat(${size}, 60px)`;
+      for (let i = 0; i < size; i++) {
+        board[i] = [];
+        for (let j = 0; j < size; j++) {
+          const cell = document.createElement("div");
+          cell.classList.add("cell");
+          cell.dataset.row = i;
+          cell.dataset.col = j;
+          addCellEvents(cell);
+          game.appendChild(cell);
+          board[i][j] = cell;
+        }
+      }
+    }
+    function addCellEvents(cell) {
+      cell.addEventListener("click", handleClick);
+      let startX, startY;
+      cell.addEventListener("touchstart", e => {
+        const touch = e.touches[0];
+        startX = touch.clientX;
+        startY = touch.clientY;
+      });
+      cell.addEventListener("touchend", e => {
+        const row = parseInt(cell.dataset.row), col = parseInt(cell.dataset.col);
+        const touch = e.changedTouches[0];
+        const dx = touch.clientX - startX, dy = touch.clientY - startY;
+        if (Math.abs(dx) > 30 || Math.abs(dy) > 30) toggleGroup(row, col);
+      });
+    }
+    function toggleCell(row, col) {
+      if (row >= 0 && row < size && col >= 0 && col < size) {
+        board[row][col].classList.toggle("on");
+      }
+    }
+    function toggleGroup(row, col) {
+      toggleCell(row, col);
+      toggleCell(row + 1, col);
+      toggleCell(row - 1, col);
+      toggleCell(row, col + 1);
+      toggleCell(row, col - 1);
+      moveCount++;
+      movesDisplay.textContent = `🎯 Moves: ${moveCount}`;
+      checkWin();
+    }
+    function handleClick(e) {
+      const row = parseInt(e.target.dataset.row), col = parseInt(e.target.dataset.col);
+      toggleGroup(row, col);
+    }
+    function checkWin() {
+      const allOff = [...document.querySelectorAll(".cell")].every(cell => !cell.classList.contains("on"));
+      if (allOff) {
+        clearInterval(interval);
+        winMessage.style.display = "block";
+        updateBestScores();
+      }
+    }
+    function randomizeBoard() {
+      for (let i = 0; i < size; i++) {
+        for (let j = 0; j < size; j++) {
+          if (Math.random() < 0.5) toggleCell(i, j);
+        }
+      }
+    }
+    function startTimer() {
+      clearInterval(interval);
+      timer = 0;
+      timerDisplay.textContent = "⏱ Time: 0s";
+      interval = setInterval(() => {
+        timer++;
+        timerDisplay.textContent = `⏱ Time: ${timer}s`;
+      }, 1000);
+    }
+    function getScoreKey() {
+      return `lightsout-${size}x${size}`;
+    }
+    function updateBestScores() {
+      const key = getScoreKey();
+      const saved = JSON.parse(localStorage.getItem(key)) || {};
+      if (!saved.time || timer < saved.time) saved.time = timer;
+      if (!saved.moves || moveCount < saved.moves) saved.moves = moveCount;
+      localStorage.setItem(key, JSON.stringify(saved));
+      showBestScores();
+    }
+    function showBestScores() {
+      const key = getScoreKey();
+      const saved = JSON.parse(localStorage.getItem(key));
+      bestTimeDisplay.textContent = saved?.time ? `🏅 Best Time: ${saved.time}s` : "🏅 Best Time: --";
+      bestMovesDisplay.textContent = saved?.moves ? `🥇 Best Moves: ${saved.moves}` : "🥇 Best Moves: --";
+    }
+    function startGame() {
+      size = parseInt(document.getElementById("difficulty").value);
+      winMessage.style.display = "none";
+      moveCount = 0;
+      movesDisplay.textContent = "🎯 Moves: 0";
+      createBoard();
+      randomizeBoard();
+      startTimer();
+      game.classList.add("show");
+      showBestScores();
+    }
+    function solveGame() {
+      for (let i = 0; i < size; i++)
+        for (let j = 0; j < size; j++)
+          if (Math.random() < 0.5) handleClick({ target: board[i][j] });
+    }
+    function toggleTheme() {
+      document.body.classList.toggle("light");
+    }
+
+    document.getElementById("restart").addEventListener("click", startGame);
+    document.getElementById("solve").addEventListener("click", solveGame);
+    document.getElementById("toggleTheme").addEventListener("click", toggleTheme);
+    document.getElementById("changeColor").addEventListener("click", cycleLightColor);
+    document.getElementById("difficulty").addEventListener("change", startGame);
+    document.getElementById("aboutBtn").addEventListener("click", () => {
+      aboutBox.style.display = aboutBox.style.display === "none" ? "block" : "none";
+    });
+
+    window.onload = () => {
+      setLightColor(onColors[0]);
+      startGame();
+    };
+  </script>
+</body>
+</html>
